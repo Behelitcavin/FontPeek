@@ -1,0 +1,22 @@
+# Local editor and build files
+.vs/
+.vscode/
+*.user
+*.suo
+*.pdb
+*.obj
+*.log
+
+# Local settings and credentials
+settings.txt
+.env
+.env.*
+!.env.example
+*.pfx
+*.key
+*.pem
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
