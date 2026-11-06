@@ -24,12 +24,13 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 [assembly: System.Reflection.AssemblyTitle("글꼴 미리보기")]
 [assembly: System.Reflection.AssemblyProduct("FontPeek")]
 [assembly: System.Reflection.AssemblyCopyright("Copyright (c) 2026 Behelit · MIT License")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
 
 internal static class Gdi {
     [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]
@@ -82,6 +83,23 @@ internal static class Program {
     [STAThread] static void Main() { Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new Peek()); }
 }
 
+internal static class Startup {
+    const string KeyPath="Software\\Microsoft\\Windows\\CurrentVersion\\Run", ValueName="FontPeek";
+    static string Command { get { return "\""+Application.ExecutablePath+"\""; } }
+    internal static bool Enabled {
+        get {
+            using(var key=Registry.CurrentUser.OpenSubKey(KeyPath))
+                return key!=null && string.Equals(key.GetValue(ValueName) as string,Command,StringComparison.OrdinalIgnoreCase);
+        }
+    }
+    internal static void SetEnabled(bool enabled) {
+        using(var key=Registry.CurrentUser.CreateSubKey(KeyPath)) {
+            if(enabled) key.SetValue(ValueName,Command,RegistryValueKind.String);
+            else key.DeleteValue(ValueName,false);
+        }
+    }
+}
+
 internal sealed class Peek : Form {
     static readonly Color cBack=Color.FromArgb(27,33,44), cSurface=Color.FromArgb(43,52,67), cLine=Color.FromArgb(65,77,95), cMuted=Color.FromArgb(166,184,216),
         cAccent=Color.FromArgb(110,221,192), cPaper=Color.FromArgb(250,249,246), cInk=Color.FromArgb(24,24,28), cName=Color.FromArgb(120,124,134);
@@ -93,6 +111,7 @@ internal sealed class Peek : Form {
     readonly TextBox box=new TextBox(); readonly Board board=new Board(); readonly TrackBar slider=new TrackBar(); readonly Label sizeLabel=new Label();
     readonly RadioButton across=new RadioButton(), down=new RadioButton(); readonly CheckBox japanese=new CheckBox(), pin=new CheckBox(); readonly TextBox search=new TextBox();
     readonly Timer delay=new Timer(); readonly ToolTip tip=new ToolTip();
+    readonly ContextMenuStrip settingsMenu=new ContextMenuStrip();
     readonly Font titleFont=new Font("Malgun Gothic",10f,FontStyle.Bold), nameFont=new Font("Yu Gothic UI",8.5f);
     readonly float k; Entry hover; string countText="";
 
@@ -101,6 +120,7 @@ internal sealed class Peek : Form {
     internal Peek() {
         using(var g=Graphics.FromHwnd(IntPtr.Zero)) k=g.DpiX/96f;
         Text=Title; FormBorderStyle=FormBorderStyle.None; MaximizeBox=false; StartPosition=FormStartPosition.Manual; AutoScaleMode=AutoScaleMode.None;
+        Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         BackColor=cBack; ForeColor=Color.White; Font=new Font("Malgun Gothic",9f); DoubleBuffered=true;
         MinimumSize=new Size(S(380),S(320)); ClientSize=new Size(S(460),S(640));
         var area=Screen.PrimaryScreen.WorkingArea; Location=new Point(area.Right-Width-S(28),area.Top+S(60));
@@ -118,7 +138,17 @@ internal sealed class Peek : Form {
         int y=box.Bottom+S(8);
         Toggle(across,"가로",p,y,S(48)); Toggle(down,"세로",p+S(48),y,S(48)); Toggle(japanese,"일본어만",p+S(104),y,S(76));
         across.Appearance=down.Appearance=japanese.Appearance=Appearance.Button; across.Checked=true; japanese.Checked=true;
-        sizeLabel.Bounds=new Rectangle(ClientSize.Width-p-S(36),y,S(36),S(28)); sizeLabel.TextAlign=ContentAlignment.MiddleRight; sizeLabel.ForeColor=cMuted;
+        var options=Flat("⚙",ClientSize.Width-p-S(30),y); options.Font=new Font("Segoe UI Symbol",11f); tip.SetToolTip(options,"설정");
+        var startup=new ToolStripMenuItem("Windows 시작 시 자동 실행"); settingsMenu.Items.Add(startup);
+        options.Click+=delegate {
+            try { startup.Checked=Startup.Enabled; settingsMenu.Show(options,new Point(options.Width,options.Height),ToolStripDropDownDirection.BelowLeft); }
+            catch(Exception ex) { MessageBox.Show(this,"시작프로그램 설정을 읽을 수 없습니다.\n"+ex.Message,"FontPeek",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
+        };
+        startup.Click+=delegate {
+            try { Startup.SetEnabled(!startup.Checked); startup.Checked=Startup.Enabled; }
+            catch(Exception ex) { MessageBox.Show(this,"시작프로그램 설정을 바꿀 수 없습니다.\n"+ex.Message,"FontPeek",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
+        };
+        sizeLabel.Bounds=new Rectangle(ClientSize.Width-p-S(72),y,S(36),S(28)); sizeLabel.TextAlign=ContentAlignment.MiddleRight; sizeLabel.ForeColor=cMuted;
         sizeLabel.Anchor=AnchorStyles.Top|AnchorStyles.Right; Controls.Add(sizeLabel);
         slider.Minimum=12; slider.Maximum=120; slider.Value=32; slider.TickStyle=TickStyle.None; slider.AutoSize=false; slider.TabStop=false; slider.BackColor=cBack;
         slider.Bounds=new Rectangle(p+S(188),y,sizeLabel.Left-S(4)-(p+S(188)),S(28)); slider.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right; Controls.Add(slider);
@@ -137,7 +167,7 @@ internal sealed class Peek : Form {
         pin.CheckedChanged+=delegate { Restyle(pin); TopMost=pin.Checked; };
         board.Paint+=PaintBoard; board.MouseMove+=Hover; board.MouseClick+=Copy;
         FormClosing+=delegate { SaveSettings(); };
-        FormClosed+=delegate { Gdi.DeleteDC(dc); delay.Dispose(); tip.Dispose(); };
+        FormClosed+=delegate { Gdi.DeleteDC(dc); delay.Dispose(); tip.Dispose(); settingsMenu.Dispose(); };
         Shown+=delegate { Relayout(); box.Focus(); box.SelectionStart=box.TextLength; };
     }
 
